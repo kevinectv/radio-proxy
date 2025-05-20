@@ -3,26 +3,38 @@ import fetch from "node-fetch";
 import cors from "cors";
 
 const app = express();
+const PORT = process.env.PORT || 3000;
+
 app.use(cors());
 
-app.get("/stream", async (req, res) => {
+app.get("/proxy", async (req, res) => {
   const url = req.query.url;
-  if (!url) return res.status(400).send("Missing stream URL");
+  if (!url) {
+    return res.status(400).send("Missing stream URL");
+  }
 
   try {
-    const response = await fetch(url);
-    if (!response.body) return res.status(500).send("No stream found");
+    const streamRes = await fetch(url);
 
-    res.setHeader("Content-Type", response.headers.get("Content-Type") || "audio/mpeg");
-    res.setHeader("Transfer-Encoding", "chunked");
-    res.setHeader("Cache-Control", "no-cache");
+    if (!streamRes.ok || !streamRes.body) {
+      return res.status(500).send("Failed to fetch stream");
+    }
 
-    response.body.pipe(res);
+    res.set({
+      "Content-Type": streamRes.headers.get("content-type") || "audio/mpeg",
+      "Cache-Control": "no-cache",
+      "Transfer-Encoding": "chunked",
+      "Access-Control-Allow-Origin": "*",
+      "Connection": "keep-alive",
+    });
+
+    streamRes.body.pipe(res);
   } catch (err) {
-    console.error("Stream error:", err);
-    res.status(500).send("Stream failed");
+    console.error("Proxy error:", err);
+    res.status(500).send("Error fetching stream");
   }
 });
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Listening on port ${PORT}`));
+app.listen(PORT, () => {
+  console.log(`Proxy server running on port ${PORT}`);
+});
