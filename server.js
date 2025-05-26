@@ -8,7 +8,7 @@ const PORT = process.env.PORT || 3000;
 app.use(cors());
 
 app.get("/proxy", (req, res) => {
-  const streamUrl = "https://stream.zeno.fm/kqv56s4a4a0uv";
+  const streamUrl = "https://stream.zeno.fm/qmhf2yd9dm0uv";
 
   const options = {
     url: streamUrl,
