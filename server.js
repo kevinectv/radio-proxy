@@ -8,9 +8,18 @@ const PORT = process.env.PORT || 3000;
 app.use(cors());
 
 app.get("/proxy", (req, res) => {
-  const streamUrl = "https://stream.zeno.fm/gutxnkuaz38uv"; // Cambia esta URL si querés otra
+  const streamUrl = "https://stream.zeno.fm/gutxnkuaz38uv";
+
+  const options = {
+    url: streamUrl,
+    headers: {
+      "User-Agent":
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/113 Safari/537.36"
+    }
+  };
+
   request
-    .get(streamUrl)
+    .get(options)
     .on("error", (err) => {
       console.error("Error al conectar con la radio:", err);
       res.status(500).send("Error de conexión con la radio");
