@@ -1,15 +1,17 @@
 const express = require("express");
 const request = require("request");
 const cors = require("cors");
+const icy = require("icy");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.use(cors());
 
-app.get("/proxy", (req, res) => {
-  const streamUrl = "https://stream.zeno.fm/qmhf2yd9dm0uv";
+const streamUrl = "https://stream.zeno.fm/qmhf2yd9dm0uv"; // tu URL real de radio
 
+// Ruta de proxy de audio
+app.get("/proxy", (req, res) => {
   const options = {
     url: streamUrl,
     headers: {
@@ -27,8 +29,24 @@ app.get("/proxy", (req, res) => {
     .pipe(res);
 });
 
-app.get("/", (_, res) => {
-  res.send("Proxy activo");
+// Ruta para obtener metadata
+app.get("/metadata", (req, res) => {
+  icy.get(streamUrl, (icyRes) => {
+    icyRes.on("metadata", (metadata) => {
+      const parsed = icy.parse(metadata);
+      const title = parsed.StreamTitle || "Desconocido";
+      res.json({ title });
+    });
+
+    icyRes.on("error", (err) => {
+      console.error("Error leyendo metadata:", err);
+      res.status(500).json({ error: "No se pudo obtener metadata" });
+    });
+  });
+});
+
+app.get("/", (req, res) => {
+  res.send("Proxy y Metadata activos 🚀");
 });
 
 app.listen(PORT, () => {
