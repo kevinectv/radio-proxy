@@ -1,18 +1,19 @@
 const express = require("express");
 const request = require("request");
 const cors = require("cors");
-const axios = require("axios"); // 🔥 Agregado
-// const icy = require("icy"); // ❌ Ya no lo vamos a usar
+const axios = require("axios");
+const https = require("https"); // Para EventSource
+const http = require("http");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.use(cors());
 
-const streamUrl = "https://stream.zeno.fm/qmhf2yd9dm0uv"; // tu URL real de radio
-const stationId = "qmhf2yd9dm0uv"; // el ID exacto de tu estación
+const streamUrl = "https://stream.zeno.fm/qmhf2yd9dm0uv";
+const stationId = "qmhf2yd9dm0uv";
 
-// Ruta de proxy de audio (esto queda igual)
+// ✅ Ruta de proxy de audio
 app.get("/proxy", (req, res) => {
   const options = {
     url: streamUrl,
@@ -31,7 +32,7 @@ app.get("/proxy", (req, res) => {
     .pipe(res);
 });
 
-// Ruta para obtener metadata desde la API de Zeno.fm ✅
+// ✅ Ruta de metadatos estáticos (si no querés tiempo real)
 app.get("/metadata", async (req, res) => {
   try {
     const response = await axios.get(`https://api.zeno.fm/station/stream/${stationId}.json`);
@@ -43,7 +44,37 @@ app.get("/metadata", async (req, res) => {
   }
 });
 
-// Ruta base
+// ✅ Ruta en tiempo real (EventSource proxy a Zeno)
+app.get("/realtime", (req, res) => {
+  res.set({
+    "Content-Type": "text/event-stream",
+    "Cache-Control": "no-cache",
+    Connection: "keep-alive"
+  });
+
+  const sourceUrl = `https://api.zeno.fm/mounts/metadata/subscribe/${stationId}`;
+
+  const client = https.get(sourceUrl, (zenoRes) => {
+    zenoRes.on("data", (chunk) => {
+      res.write(`data: ${chunk.toString().trim()}\n\n`);
+    });
+
+    zenoRes.on("end", () => {
+      res.end();
+    });
+  });
+
+  client.on("error", (err) => {
+    console.error("Error en EventSource desde Zeno:", err.message);
+    res.end();
+  });
+
+  req.on("close", () => {
+    client.destroy();
+  });
+});
+
+// ✅ Ruta raíz
 app.get("/", (req, res) => {
   res.send("Proxy y Metadata activos 🚀");
 });
