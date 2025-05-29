@@ -2,8 +2,8 @@ const express = require("express");
 const request = require("request");
 const cors = require("cors");
 const axios = require("axios");
-const https = require("https"); // Para EventSource
-const http = require("http");
+const https = require("https");
+const qs = require("querystring");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -13,13 +13,12 @@ app.use(cors());
 const streamUrl = "https://stream.zeno.fm/qmhf2yd9dm0uv";
 const stationId = "qmhf2yd9dm0uv";
 
-// ✅ Ruta de proxy de audio
+// 🔊 Proxy de audio
 app.get("/proxy", (req, res) => {
   const options = {
     url: streamUrl,
     headers: {
-      "User-Agent":
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/113 Safari/537.36"
+      "User-Agent": "Mozilla/5.0"
     }
   };
 
@@ -32,7 +31,7 @@ app.get("/proxy", (req, res) => {
     .pipe(res);
 });
 
-// ✅ Ruta de metadatos estáticos (si no querés tiempo real)
+// 📻 Metadata estática desde Zeno
 app.get("/metadata", async (req, res) => {
   try {
     const response = await axios.get(`https://api.zeno.fm/station/stream/${stationId}.json`);
@@ -44,7 +43,7 @@ app.get("/metadata", async (req, res) => {
   }
 });
 
-// ✅ Ruta en tiempo real (EventSource proxy a Zeno)
+// 📡 Real-time streaming desde Zeno
 app.get("/realtime", (req, res) => {
   res.set({
     "Content-Type": "text/event-stream",
@@ -65,7 +64,7 @@ app.get("/realtime", (req, res) => {
   });
 
   client.on("error", (err) => {
-    console.error("Error en EventSource desde Zeno:", err.message);
+    console.error("Error en realtime Zeno:", err.message);
     res.end();
   });
 
@@ -74,9 +73,55 @@ app.get("/realtime", (req, res) => {
   });
 });
 
-// ✅ Ruta raíz
+// 🖼️ NUEVO: Carátula de Spotify
+app.get("/spotify", async (req, res) => {
+  const song = req.query.song;
+  if (!song) return res.status(400).json({ error: "Falta el parámetro 'song'" });
+
+  try {
+    // 1. Obtener token de acceso
+    const tokenRes = await axios.post(
+      "https://accounts.spotify.com/api/token",
+      qs.stringify({ grant_type: "client_credentials" }),
+      {
+        headers: {
+          Authorization:
+            "Basic " +
+            Buffer.from(
+              `${process.env.SPOTIFY_CLIENT_ID}:${process.env.SPOTIFY_CLIENT_SECRET}`
+            ).toString("base64"),
+          "Content-Type": "application/x-www-form-urlencoded"
+        }
+      }
+    );
+
+    const token = tokenRes.data.access_token;
+
+    // 2. Buscar la canción
+    const searchRes = await axios.get(
+      `https://api.spotify.com/v1/search?q=${encodeURIComponent(song)}&type=track&limit=1`,
+      {
+        headers: { Authorization: `Bearer ${token}` }
+      }
+    );
+
+    const item = searchRes.data.tracks.items[0];
+    if (!item) return res.status(404).json({ error: "Canción no encontrada" });
+
+    res.json({
+      title: item.name,
+      artist: item.artists.map((a) => a.name).join(", "),
+      image: item.album.images[0]?.url || null
+    });
+  } catch (err) {
+    console.error("Error al buscar en Spotify:", err.message);
+    res.status(500).json({ error: "No se pudo obtener datos de Spotify" });
+  }
+});
+
+// 🌐 Ruta raíz
 app.get("/", (req, res) => {
-  res.send("Proxy y Metadata activos 🚀");
+  res.send("Proxy, Metadata, y Spotify activos 🚀");
 });
 
 app.listen(PORT, () => {
