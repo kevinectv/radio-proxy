@@ -18,7 +18,8 @@ app.get("/proxy", (req, res) => {
   const options = {
     url: streamUrl,
     headers: {
-      "User-Agent": "Mozilla/5.0"
+      "User-Agent":
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/113 Safari/537.36"
     }
   };
 
