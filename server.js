@@ -8,8 +8,8 @@ const qs = require("querystring");
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-const streamUrl = `https://stream.zeno.fm/${process.env.STATION_ID}`;
 const stationId = process.env.STATION_ID;
+const streamUrl = `https://stream.zeno.fm/${stationId}`;
 
 app.use(cors());
 
@@ -24,7 +24,7 @@ app.get("/proxy", (req, res) => {
       }
     })
     .on("error", (err) => {
-      console.error("Error al conectar con la radio:", err);
+      console.error("❌ Error al conectar con la radio:", err.message);
       res.status(500).send("Error de conexión con la radio");
     })
     .pipe(res);
@@ -49,14 +49,14 @@ app.get("/realtime", (req, res) => {
   });
 
   client.on("error", (err) => {
-    console.error("Error en EventSource desde Zeno:", err.message);
+    console.error("❌ Error en EventSource desde Zeno:", err.message);
     res.end();
   });
 
   req.on("close", () => client.destroy());
 });
 
-// 🧠 Estado compartido de canción
+// 🧠 Estado compartido
 let currentSong = "";
 let spotifyToken = null;
 let tokenExpiresAt = 0;
@@ -86,22 +86,38 @@ async function getSpotifyToken() {
   return spotifyToken;
 }
 
-// 📡 Escuchar Zeno directamente para guardar el título actual
-const metadataUrl = `https://api.zeno.fm/mounts/metadata/subscribe/${stationId}`;
-https.get(metadataUrl, (stream) => {
-  stream.on("data", (chunk) => {
-    const text = chunk.toString();
-    try {
-      const parsed = JSON.parse(text);
-      if (parsed.nowPlaying && parsed.nowPlaying.title) {
-        currentSong = parsed.nowPlaying.title;
-        console.log("🎵 Canción actual:", currentSong);
-      }
-    } catch (_) {}
-  });
-});
+// 🎧 Escuchar metadata en tiempo real desde Zeno
+function connectToZenoMetadata() {
+  const metadataUrl = `https://api.zeno.fm/mounts/metadata/subscribe/${stationId}`;
 
-// 🎧 Ruta /spotify que busca info automáticamente
+  const stream = https.get(metadataUrl, (res) => {
+    res.on("data", (chunk) => {
+      try {
+        const parsed = JSON.parse(chunk.toString());
+        const newTitle = parsed?.nowPlaying?.title;
+        if (newTitle && newTitle !== currentSong) {
+          currentSong = newTitle;
+          console.log("🎵 Nueva canción:", currentSong);
+        }
+      } catch (_) {}
+    });
+
+    res.on("end", () => {
+      console.warn("🔁 Conexión a metadata finalizada, reconectando...");
+      setTimeout(connectToZenoMetadata, 2000);
+    });
+  });
+
+  stream.on("error", (err) => {
+    console.error("❌ Error al conectar metadata Zeno:", err.message);
+    setTimeout(connectToZenoMetadata, 5000);
+  });
+}
+
+// 🔁 Iniciar escucha de metadata al arrancar el servidor
+connectToZenoMetadata();
+
+// 🧠 Buscar información en Spotify sobre la canción actual
 app.get("/spotify", async (req, res) => {
   try {
     if (!currentSong) {
@@ -131,7 +147,7 @@ app.get("/spotify", async (req, res) => {
       image: track.album.images[0]?.url || null
     });
   } catch (error) {
-    console.error("Error en /spotify:", error.message);
+    console.error("❌ Error en /spotify:", error.message);
     res.status(500).json({ error: "Error al buscar en Spotify" });
   }
 });
@@ -142,5 +158,5 @@ app.get("/", (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`Servidor escuchando en http://localhost:${PORT}`);
+  console.log(`🚀 Servidor escuchando en http://localhost:${PORT}`);
 });
