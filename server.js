@@ -4,7 +4,6 @@ const cors = require("cors");
 const axios = require("axios");
 const https = require("https");
 const qs = require("querystring");
-require("dotenv").config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
