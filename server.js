@@ -4,27 +4,26 @@ const cors = require("cors");
 const axios = require("axios");
 const https = require("https");
 const qs = require("querystring");
+require("dotenv").config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-app.use(cors());
+const streamUrl = `https://stream.zeno.fm/${process.env.STATION_ID}`;
+const stationId = process.env.STATION_ID;
 
-const streamUrl = "https://stream.zeno.fm/qmhf2yd9dm0uv";
-const stationId = "qmhf2yd9dm0uv";
+app.use(cors());
 
 // 🔊 Proxy de audio
 app.get("/proxy", (req, res) => {
-  const options = {
-    url: streamUrl,
-    headers: {
-      "User-Agent":
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/113 Safari/537.36"
-    }
-  };
-
   request
-    .get(options)
+    .get({
+      url: streamUrl,
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/113 Safari/537.36"
+      }
+    })
     .on("error", (err) => {
       console.error("Error al conectar con la radio:", err);
       res.status(500).send("Error de conexión con la radio");
@@ -32,19 +31,7 @@ app.get("/proxy", (req, res) => {
     .pipe(res);
 });
 
-// 📻 Metadata estática desde Zeno
-app.get("/metadata", async (req, res) => {
-  try {
-    const response = await axios.get(`https://api.zeno.fm/station/stream/${stationId}.json`);
-    const nowPlaying = response.data?.now_playing?.song || "Desconocido";
-    res.json({ title: nowPlaying });
-  } catch (error) {
-    console.error("Error al obtener metadata:", error.message);
-    res.status(500).json({ error: "No se pudo obtener metadata" });
-  }
-});
-
-// 📡 Real-time streaming desde Zeno
+// 🔁 EventSource: metadata en tiempo real
 app.get("/realtime", (req, res) => {
   res.set({
     "Content-Type": "text/event-stream",
@@ -59,72 +46,101 @@ app.get("/realtime", (req, res) => {
       res.write(`data: ${chunk.toString().trim()}\n\n`);
     });
 
-    zenoRes.on("end", () => {
-      res.end();
-    });
+    zenoRes.on("end", () => res.end());
   });
 
   client.on("error", (err) => {
-    console.error("Error en realtime Zeno:", err.message);
+    console.error("Error en EventSource desde Zeno:", err.message);
     res.end();
   });
 
-  req.on("close", () => {
-    client.destroy();
+  req.on("close", () => client.destroy());
+});
+
+// 🎵 Ruta /spotify automática con metadatos de /realtime
+let currentSong = "";
+let spotifyToken = null;
+let tokenExpiresAt = 0;
+
+// Función para obtener nuevo token de Spotify
+async function getSpotifyToken() {
+  const now = Date.now();
+  if (spotifyToken && tokenExpiresAt > now) return spotifyToken;
+
+  const auth = Buffer.from(
+    `${process.env.SPOTIFY_CLIENT_ID}:${process.env.SPOTIFY_CLIENT_SECRET}`
+  ).toString("base64");
+
+  const response = await axios.post(
+    "https://accounts.spotify.com/api/token",
+    qs.stringify({ grant_type: "client_credentials" }),
+    {
+      headers: {
+        Authorization: `Basic ${auth}`,
+        "Content-Type": "application/x-www-form-urlencoded"
+      }
+    }
+  );
+
+  spotifyToken = response.data.access_token;
+  tokenExpiresAt = now + response.data.expires_in * 1000;
+  return spotifyToken;
+}
+
+// Escucha el stream y guarda la canción actual
+const metadataUrl = `https://api.zeno.fm/mounts/metadata/subscribe/${stationId}`;
+https.get(metadataUrl, (stream) => {
+  stream.on("data", (chunk) => {
+    const text = chunk.toString();
+    try {
+      const parsed = JSON.parse(text);
+      if (parsed.nowPlaying) {
+        currentSong = parsed.nowPlaying;
+      }
+    } catch (_) {}
   });
 });
 
-// 🖼️ NUEVO: Carátula de Spotify
+// 🎧 Ruta /spotify que busca carátula y artista automáticamente
 app.get("/spotify", async (req, res) => {
-  const song = req.query.song;
-  if (!song) return res.status(400).json({ error: "Falta el parámetro 'song'" });
-
   try {
-    // 1. Obtener token de acceso
-    const tokenRes = await axios.post(
-      "https://accounts.spotify.com/api/token",
-      qs.stringify({ grant_type: "client_credentials" }),
+    if (!currentSong) {
+      return res.status(400).json({ error: "No se ha detectado canción aún" });
+    }
+
+    const token = await getSpotifyToken();
+
+    const response = await axios.get(
+      `https://api.spotify.com/v1/search?q=${encodeURIComponent(currentSong)}&type=track&limit=1`,
       {
         headers: {
-          Authorization:
-            "Basic " +
-            Buffer.from(
-              `${process.env.SPOTIFY_CLIENT_ID}:${process.env.SPOTIFY_CLIENT_SECRET}`
-            ).toString("base64"),
-          "Content-Type": "application/x-www-form-urlencoded"
+          Authorization: `Bearer ${token}`
         }
       }
     );
 
-    const token = tokenRes.data.access_token;
+    const track = response.data.tracks.items[0];
 
-    // 2. Buscar la canción
-    const searchRes = await axios.get(
-      `https://api.spotify.com/v1/search?q=${encodeURIComponent(song)}&type=track&limit=1`,
-      {
-        headers: { Authorization: `Bearer ${token}` }
-      }
-    );
-
-    const item = searchRes.data.tracks.items[0];
-    if (!item) return res.status(404).json({ error: "Canción no encontrada" });
+    if (!track) {
+      return res.json({ title: currentSong, error: "No se encontró en Spotify" });
+    }
 
     res.json({
-      title: item.name,
-      artist: item.artists.map((a) => a.name).join(", "),
-      image: item.album.images[0]?.url || null
+      title: track.name,
+      artist: track.artists.map((a) => a.name).join(", "),
+      image: track.album.images[0]?.url || null
     });
-  } catch (err) {
-    console.error("Error al buscar en Spotify:", err.message);
-    res.status(500).json({ error: "No se pudo obtener datos de Spotify" });
+  } catch (error) {
+    console.error("Error en /spotify:", error.message);
+    res.status(500).json({ error: "Error al buscar en Spotify" });
   }
 });
 
-// 🌐 Ruta raíz
+// Ruta principal
 app.get("/", (req, res) => {
-  res.send("Proxy, Metadata, y Spotify activos 🚀");
+  res.send("Servidor activo con Proxy, Realtime y Spotify 🔥");
 });
 
 app.listen(PORT, () => {
-  console.log(`Servidor corriendo en http://localhost:${PORT}`);
+  console.log(`Servidor escuchando en http://localhost:${PORT}`);
 });
