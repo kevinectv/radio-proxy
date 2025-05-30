@@ -56,12 +56,12 @@ app.get("/realtime", (req, res) => {
   req.on("close", () => client.destroy());
 });
 
-// 🎵 Ruta /spotify automática con metadatos de /realtime
+// 🧠 Estado compartido de canción
 let currentSong = "";
 let spotifyToken = null;
 let tokenExpiresAt = 0;
 
-// Función para obtener nuevo token de Spotify
+// 🔐 Obtener token de Spotify
 async function getSpotifyToken() {
   const now = Date.now();
   if (spotifyToken && tokenExpiresAt > now) return spotifyToken;
@@ -86,7 +86,7 @@ async function getSpotifyToken() {
   return spotifyToken;
 }
 
-// ✅ CORREGIDO: ahora solo se guarda el título de la canción
+// 📡 Escuchar Zeno directamente para guardar el título actual
 const metadataUrl = `https://api.zeno.fm/mounts/metadata/subscribe/${stationId}`;
 https.get(metadataUrl, (stream) => {
   stream.on("data", (chunk) => {
@@ -101,7 +101,7 @@ https.get(metadataUrl, (stream) => {
   });
 });
 
-// 🎧 Ruta /spotify que busca carátula y artista automáticamente
+// 🎧 Ruta /spotify que busca info automáticamente
 app.get("/spotify", async (req, res) => {
   try {
     if (!currentSong) {
@@ -136,7 +136,7 @@ app.get("/spotify", async (req, res) => {
   }
 });
 
-// Ruta principal
+// 🌐 Ruta principal
 app.get("/", (req, res) => {
   res.send("Servidor activo con Proxy, Realtime y Spotify 🔥");
 });
