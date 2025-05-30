@@ -92,21 +92,23 @@ function connectToZenoMetadata() {
 
   const stream = https.get(metadataUrl, (res) => {
     res.on("data", (chunk) => {
-      const raw = chunk.toString();
-      console.log("📡 Chunk recibido:", raw); // Mostrar el texto crudo
+      const raw = chunk.toString().trim();
+      console.log("📡 Chunk recibido:", raw);
+
+      const match = raw.match(/^data:\s*(.*)$/);
+      if (!match) return;
 
       try {
-        const parsed = JSON.parse(raw);
-        console.log("🧠 JSON parsed:", parsed); // Mostrar lo que se parsea
+        const json = JSON.parse(match[1]);
+        console.log("🧠 JSON parsed:", json);
 
-        const newTitle = parsed?.nowPlaying?.title;
-
+        const newTitle = json?.nowPlaying?.title;
         if (newTitle && newTitle !== currentSong) {
           currentSong = newTitle;
           console.log("🎵 Nueva canción:", currentSong);
         }
       } catch (e) {
-        console.warn("⚠️ Error al parsear JSON:", e.message);
+        console.warn("⚠️ Error al parsear JSON de 'data:' =>", e.message);
       }
     });
 
@@ -122,9 +124,10 @@ function connectToZenoMetadata() {
   });
 }
 
+// 🔁 Iniciar escucha de metadata al arrancar el servidor
 connectToZenoMetadata();
 
-// 🧠 Buscar info en Spotify
+// 🧠 Buscar información en Spotify sobre la canción actual
 app.get("/spotify", async (req, res) => {
   try {
     if (!currentSong) {
@@ -159,12 +162,7 @@ app.get("/spotify", async (req, res) => {
   }
 });
 
-// Ruta para ver canción actual (debug)
-app.get("/song", (req, res) => {
-  res.json({ currentSong });
-});
-
-// Ruta base
+// 🌐 Ruta principal
 app.get("/", (req, res) => {
   res.send("Servidor activo con Proxy, Realtime y Spotify 🔥");
 });
