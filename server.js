@@ -9,7 +9,7 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 const stationId = process.env.STATION_ID;
-const streamUrl = `https://stream.zeno.fm/${stationId}`;
+const streamUrl = `https://stream.zeno.fm/${process.env.STATION_ID}`;
 
 app.use(cors());
 
