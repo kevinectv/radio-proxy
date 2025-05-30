@@ -86,15 +86,16 @@ async function getSpotifyToken() {
   return spotifyToken;
 }
 
-// Escucha el stream y guarda la canción actual
+// ✅ CORREGIDO: ahora solo se guarda el título de la canción
 const metadataUrl = `https://api.zeno.fm/mounts/metadata/subscribe/${stationId}`;
 https.get(metadataUrl, (stream) => {
   stream.on("data", (chunk) => {
     const text = chunk.toString();
     try {
       const parsed = JSON.parse(text);
-      if (parsed.nowPlaying) {
-        currentSong = parsed.nowPlaying;
+      if (parsed.nowPlaying && parsed.nowPlaying.title) {
+        currentSong = parsed.nowPlaying.title;
+        console.log("🎵 Canción actual:", currentSong);
       }
     } catch (_) {}
   });
