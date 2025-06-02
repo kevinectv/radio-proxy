@@ -161,6 +161,28 @@ app.get("/spotify", async (req, res) => {
   }
 });
 
+// 🖼️ Ruta proxy para imagen de Spotify (para que funcione en Discord)
+app.get("/proxy-image", async (req, res) => {
+  const imageUrl = req.query.url;
+
+  if (!imageUrl) {
+    return res.status(400).send("Falta el parámetro 'url'");
+  }
+
+  try {
+    const response = await axios.get(imageUrl, {
+      responseType: "arraybuffer"
+    });
+
+    const contentType = response.headers["content-type"] || "image/jpeg";
+    res.setHeader("Content-Type", contentType);
+    res.send(response.data);
+  } catch (error) {
+    console.error("❌ Error al cargar imagen:", error.message);
+    res.status(500).send("Error al cargar imagen");
+  }
+});
+
 // 🌐 Ruta principal
 app.get("/", (req, res) => {
   res.send("Servidor activo con Proxy, Realtime y Spotify 🔥");
