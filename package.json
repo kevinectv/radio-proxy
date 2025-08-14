@@ -1,10 +1,11 @@
 {
   "name": "radio-proxy",
   "version": "1.0.0",
+  "type": "module",
   "description": "",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node --input-type=module server.js"
   },
   "dependencies": {
     "axios": "^1.9.0",
