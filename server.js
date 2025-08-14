@@ -1,6 +1,7 @@
 // server.js
 import express from "express";
 import fetch from "node-fetch";
+import icy from "icy";
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -13,7 +14,7 @@ const stations = {
   reggaeton: "https://reggaeton.stream.laut.fm/reggaeton",
 };
 
-// Función para obtener metadatos ICY
+// Función para obtener metadatos ICY manualmente
 async function getMetadata(streamUrl) {
   const resp = await fetch(streamUrl, {
     method: "GET",
@@ -78,7 +79,7 @@ async function getMetadata(streamUrl) {
   return { title, artist, raw: rawTitle };
 }
 
-// Endpoint para pedir metadatos
+// 📌 Endpoint para pedir metadatos
 app.get("/api/metadata", async (req, res) => {
   const { station, url } = req.query;
   const streamUrl = url || stations[station];
@@ -88,14 +89,48 @@ app.get("/api/metadata", async (req, res) => {
   }
 
   try {
-    const metadata = await getMetadata(streamUrl);
+    let metadata = await getMetadata(streamUrl);
+
+    // Si no hay metadatos, intentamos con icy como fallback
+    if (!metadata.raw) {
+      await new Promise((resolve) => {
+        icy.get(streamUrl, (stream) => {
+          stream.on("metadata", (meta) => {
+            const parsed = icy.parse(meta);
+            metadata = { title: parsed.StreamTitle || null };
+            resolve();
+            stream.destroy();
+          });
+          stream.on("error", () => resolve());
+        });
+      });
+    }
+
     res.json(metadata);
   } catch (err) {
     res.status(500).json({ error: "Error obteniendo metadatos", details: err.message });
   }
 });
 
-// Arrancar servidor
+// 📌 Endpoint proxy para reproducir el stream sin CORS
+app.get("/api/proxy", async (req, res) => {
+  const { station, url } = req.query;
+  const streamUrl = url || stations[station];
+
+  if (!streamUrl) {
+    return res.status(400).json({ error: "Falta station o url" });
+  }
+
+  try {
+    const response = await fetch(streamUrl);
+    res.setHeader("Content-Type", response.headers.get("content-type"));
+    response.body.pipe(res);
+  } catch (error) {
+    console.error("Error en proxy:", error);
+    res.status(500).json({ error: "No se pudo conectar al stream" });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`Servidor corriendo en http://localhost:${PORT}`);
 });
