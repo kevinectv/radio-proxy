@@ -1,7 +1,6 @@
 import express from "express";
 import fetch from "node-fetch";
 import * as cheerio from "cheerio";
-// Buffer es necesario para trabajar con los datos binarios del stream.
 import { Buffer } from 'node:buffer';
 
 const app = express();
@@ -36,16 +35,12 @@ async function getICYMetadata(url) {
     });
 
     const metaInt = parseInt(res.headers.get("icy-metaint"));
-    // Si no hay 'icy-metaint', la estación no soporta este método.
     if (!metaInt) {
-        // console.log(`La estación ${url} no tiene cabecera icy-metaint.`);
         return { title: null, artist: null };
     }
 
     const reader = res.body.getReader();
-    
-    // Leemos el primer trozo de datos que contiene la información del tamaño de los metadatos.
-    let bytesToRead = metaInt + 256; // Leemos un poco más para asegurar que tenemos los metadatos.
+    let bytesToRead = metaInt + 256;
     let receivedLength = 0;
     let chunks = [];
     
@@ -56,12 +51,8 @@ async function getICYMetadata(url) {
         receivedLength += value.length;
     }
 
-    // Cancelamos la lectura del stream para no descargar la canción entera.
     reader.cancel();
-
     const buffer = Buffer.concat(chunks);
-    
-    // El tamaño de los metadatos se encuentra en el byte después del audio.
     const metaLength = buffer[metaInt] * 16;
     if (metaLength === 0) {
         return { title: null, artist: null };
@@ -69,9 +60,7 @@ async function getICYMetadata(url) {
 
     const metaStart = metaInt + 1;
     const metaEnd = metaStart + metaLength;
-    
     const metaData = buffer.slice(metaStart, metaEnd).toString('utf8').replace(/\0/g, "");
-
     const match = metaData.match(/StreamTitle='([^']*)';/);
     const rawTitle = match ? match[1] : null;
 
@@ -93,29 +82,47 @@ async function getICYMetadata(url) {
   }
 }
 
-// Endpoint para obtener metadatos de TODAS las estaciones
+// --- CÓDIGO ACTUALIZADO ---
+// Endpoint MEJORADO para obtener metadatos de TODAS las estaciones en paralelo
 app.get("/api/metadata-all", async (req, res) => {
-  const results = {};
+  try {
+    // 1. Creamos un array de promesas, una para cada estación.
+    const promises = Object.entries(stations).map(async ([name, url]) => {
+      let metadata = await getICYMetadata(url);
 
-  for (const [name, url] of Object.entries(stations)) {
-    let metadata = await getICYMetadata(url);
-
-    // Si no hay título, intentamos desde HTML como alternativa.
-    if (!metadata.title) {
-      const htmlTitle = await getTitleFromHTML(url);
-      if (htmlTitle) {
+      if (!metadata.title) {
+        const htmlTitle = await getTitleFromHTML(url);
+        if (htmlTitle) {
           metadata.title = htmlTitle;
+        }
       }
-    }
 
-    results[name] = {
-      stream: url,
-      ...metadata
-    };
+      // Devolvemos un objeto con el nombre para poder reconstruir el resultado final.
+      return { 
+        name, 
+        data: {
+          stream: url,
+          ...metadata
+        }
+      };
+    });
+
+    // 2. Esperamos a que TODAS las promesas se completen.
+    const stationResults = await Promise.all(promises);
+
+    // 3. Convertimos el array de resultados en el objeto JSON final.
+    const results = stationResults.reduce((acc, result) => {
+      acc[result.name] = result.data;
+      return acc;
+    }, {});
+
+    res.json(results);
+  } catch (error) {
+    console.error("Error en /api/metadata-all:", error);
+    res.status(500).json({ error: "No se pudieron obtener los metadatos de todas las estaciones." });
   }
-
-  res.json(results);
 });
+
 
 // Endpoint para obtener metadatos de UNA sola estación
 app.get("/api/metadata", async (req, res) => {
@@ -139,6 +146,24 @@ app.get("/api/metadata", async (req, res) => {
     ...metadata
   });
 });
+
+// --- RUTA AÑADIDA ---
+// Ruta para la página principal (/) para evitar el "Cannot GET /"
+app.get("/", (req, res) => {
+  res.setHeader('Content-Type', 'text/html');
+  res.send(`
+    <body style="font-family: sans-serif; background-color: #f0f0f0; padding: 2em;">
+      <h1>API de Metadatos de Radio</h1>
+      <p>¡Bienvenido! El servidor está funcionando correctamente.</p>
+      <h3>Endpoints disponibles:</h3>
+      <ul>
+        <li><a href="/api/metadata-all">/api/metadata-all</a> (Obtiene los metadatos de todas las estaciones)</li>
+        <li><a href="/api/metadata?station=fhlink">/api/metadata?station=fhlink</a> (Obtiene metadatos de una estación específica)</li>
+      </ul>
+    </body>
+  `);
+});
+
 
 app.listen(PORT, () => {
   console.log(`Servidor corriendo en http://localhost:${PORT}`);
